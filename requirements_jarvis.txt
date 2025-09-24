@@ -1,0 +1,54 @@
+# J.A.R.V.I.S. G.H.O.S.T. AI Assistant Requirements
+
+# Core AI and NLP
+spacy>=3.7.0
+openai>=1.0.0
+transformers>=4.30.0
+torch>=2.0.0
+
+# Local LLM Support
+ollama>=0.1.0
+
+# Speech Recognition and TTS
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+pyaudio>=0.2.11
+vosk>=0.3.45
+
+# Windows Audio Control
+pycaw>=20230407
+comtypes>=1.2.0
+pywin32>=306
+
+# System Monitoring and Control
+psutil>=5.9.0
+winreg; sys_platform == "win32"
+
+# Database and Storage
+sqlite3; python_version >= "3.0"
+
+# Web and Network
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Async and Threading
+asyncio; python_version >= "3.7"
+concurrent.futures; python_version >= "3.2"
+
+# Development and Testing
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Optional: Advanced NLP Models
+# Uncomment if you want to use advanced spaCy models
+# en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
+
+# Note: Some packages may require additional system dependencies:
+# - For pyaudio on Windows: Microsoft Visual C++ Build Tools
+# - For spaCy models: python -m spacy download en_core_web_sm
+# - For Ollama: Download and install Ollama from https://ollama.ai/

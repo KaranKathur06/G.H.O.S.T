@@ -1,0 +1,66 @@
+{
+  "assistant": {
+    "name": "G.H.O.S.T.",
+    "version": "1.0.0",
+    "debug_mode": false,
+    "log_level": "INFO"
+  },
+  "speech": {
+    "stt": {
+      "engine": "google",
+      "language": "en-US",
+      "energy_threshold": 300,
+      "dynamic_energy_threshold": true
+    },
+    "tts": {
+      "engine": "pyttsx3",
+      "rate": 200,
+      "volume": 0.9,
+      "voice_id": null
+    }
+  },
+  "actions": {
+    "apps": {
+      "enabled": true,
+      "paths": {}
+    },
+    "web": {
+      "enabled": true,
+      "default_engine": "google",
+      "custom_engines": {}
+    },
+    "system": {
+      "enabled": true,
+      "confirm_dangerous": true,
+      "allowed_operations": [
+        "time",
+        "date",
+        "shutdown",
+        "restart",
+        "sleep",
+        "lock"
+      ]
+    },
+    "weather": {
+      "enabled": true,
+      "api_key": "",
+      "provider": "openweathermap",
+      "default_location": "New York",
+      "units": "metric"
+    },
+    "entertainment": {
+      "enabled": true,
+      "default_type": "joke"
+    }
+  },
+  "memory": {
+    "data_dir": "data/memory",
+    "max_conversation_history": 1000,
+    "auto_cleanup_days": 30
+  },
+  "ui": {
+    "enabled": false,
+    "port": 8080,
+    "host": "localhost"
+  }
+}

@@ -1,0 +1,100 @@
+# G.H.O.S.T. Virtual Assistant - Git Ignore File
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Configuration and Secrets
+.env
+*.key
+config.ini
+secrets.json
+
+# Logs
+data/logs/
+*.log
+logs/
+
+# Memory and Data Storage
+data/memory/
+data/cache/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+test_data/
+coverage.xml
+
+# Documentation
+docs/_build/
+.readthedocs.yml
+
+# Temporary Files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Audio Files (if any are generated)
+*.wav
+*.mp3
+*.ogg
+
+# System Files
+.system
+desktop.ini
+
+# Backup Files
+*.bak
+*.backup
+*~
+
+# User-specific Files
+user_names.txt
+PyWhatKit_DB.txt
+assistant.log
+
+# Package Files
+*.tar.gz
+*.zip
+*.rar

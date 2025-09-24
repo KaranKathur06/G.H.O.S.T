@@ -1,0 +1,19 @@
+{
+  "applications": {
+    "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "firefox": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+    "notepad": "notepad.exe",
+    "calculator": "calc.exe",
+    "vscode": "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+    "spotify": "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Spotify\\Spotify.exe",
+    "discord": "C:\\Users\\%USERNAME%\\AppData\\Local\\Discord\\Update.exe",
+    "whatsapp": "C:\\Users\\%USERNAME%\\AppData\\Local\\WhatsApp\\WhatsApp.exe"
+  },
+  "directories": {
+    "downloads": "C:\\Users\\%USERNAME%\\Downloads",
+    "documents": "C:\\Users\\%USERNAME%\\Documents",
+    "desktop": "C:\\Users\\%USERNAME%\\Desktop",
+    "music": "C:\\Users\\%USERNAME%\\Music",
+    "pictures": "C:\\Users\\%USERNAME%\\Pictures"
+  }
+}
