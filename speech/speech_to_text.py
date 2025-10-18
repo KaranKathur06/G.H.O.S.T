@@ -11,8 +11,21 @@ import threading
 import time
 import queue
 from typing import Dict, Any, Optional, Callable, List
-import pyaudio
-import vosk
+
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    pyaudio = None
+
+try:
+    import vosk
+    VOSK_AVAILABLE = True
+except ImportError:
+    VOSK_AVAILABLE = False
+    vosk = None
+
 try:
     import speech_recognition as sr
     SR_AVAILABLE = True
@@ -150,7 +163,7 @@ class SpeechToText:
     
     def listen(self, timeout: float = 5.0, phrase_timeout: float = 1.0) -> Optional[str]:
         """
-        Listen for voice input and return recognized text.
+        Listen for voice input and return recognized text with improved performance.
         
         Args:
             timeout: Maximum time to wait for speech
@@ -159,12 +172,60 @@ class SpeechToText:
         Returns:
             Recognized text or None if no speech detected
         """
+        # Try SpeechRecognition first for better performance
+        if self.use_sr and self.sr_recognizer and self.sr_microphone:
+            return self._listen_with_sr(timeout, phrase_timeout)
+        
+        # Fallback to VOSK
+        return self._listen_with_vosk(timeout, phrase_timeout)
+    
+    def _listen_with_sr(self, timeout: float, phrase_timeout: float) -> Optional[str]:
+        """Listen using SpeechRecognition for better performance."""
+        try:
+            self.logger.debug(f"Listening with SpeechRecognition (timeout: {timeout}s)")
+            
+            with self.sr_microphone as source:
+                # Quick ambient noise adjustment
+                self.sr_recognizer.adjust_for_ambient_noise(source, duration=0.2)
+                
+                # Listen for audio with timeout
+                audio = self.sr_recognizer.listen(
+                    source, 
+                    timeout=timeout, 
+                    phrase_time_limit=phrase_timeout
+                )
+            
+            # Recognize speech
+            text = self.sr_recognizer.recognize_google(audio, language='en-US')
+            text = text.strip()
+            
+            if text:
+                self.logger.info(f"Recognized: {text}")
+                return text
+            
+            return None
+            
+        except sr.WaitTimeoutError:
+            self.logger.debug("Listening timeout")
+            return None
+        except sr.UnknownValueError:
+            self.logger.debug("Could not understand audio")
+            return None
+        except sr.RequestError as e:
+            self.logger.error(f"Speech recognition service error: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error in SpeechRecognition listen: {e}")
+            return None
+    
+    def _listen_with_vosk(self, timeout: float, phrase_timeout: float) -> Optional[str]:
+        """Fallback listening using VOSK."""
         if not self.model or not self.recognizer:
             self.logger.error("VOSK not initialized")
             return None
         
         try:
-            self.logger.debug(f"Listening for speech (timeout: {timeout}s)")
+            self.logger.debug(f"Listening with VOSK (timeout: {timeout}s)")
             
             # Open audio stream
             stream = self.audio.open(
@@ -179,13 +240,11 @@ class SpeechToText:
             self.is_listening = True
             start_time = time.time()
             silence_start = None
-            audio_data = b""
             
             while self.is_listening and (time.time() - start_time) < timeout:
                 try:
                     # Read audio chunk
                     data = stream.read(self.chunk_size, exception_on_overflow=False)
-                    audio_data += data
                     
                     # Process with VOSK
                     if self.recognizer.AcceptWaveform(data):
@@ -239,7 +298,7 @@ class SpeechToText:
             return None
             
         except Exception as e:
-            self.logger.error(f"Error during speech recognition: {e}")
+            self.logger.error(f"Error during VOSK speech recognition: {e}")
             return None
     
     def continuous_listen(self, callback: Callable[[str], None], wake_word_only: bool = True) -> None:
@@ -272,35 +331,41 @@ class SpeechToText:
     
     def _start_background_listening(self, callback: Callable[[str], None], wake_word_only: bool) -> None:
         """
-        Start background listening using SpeechRecognition (non-blocking, efficient).
+        Start optimized background listening using SpeechRecognition (non-blocking, efficient).
         
         Args:
             callback: Function to call when speech is recognized
             wake_word_only: If True, only trigger callback on wake word detection
         """
         def audio_callback(recognizer, audio):
-            """Process audio in background thread."""
+            """Process audio in background thread with optimizations."""
             try:
                 # Check cooldown to prevent excessive processing
                 current_time = time.time()
                 if current_time - self._last_recognition_time < self._recognition_cooldown:
                     return
                 
-                # Recognize speech
-                text = recognizer.recognize_google(audio, language='en-US')
-                text = text.lower().strip()
-                
-                if text:
-                    self._last_recognition_time = current_time
+                # Use faster recognition with timeout
+                try:
+                    text = recognizer.recognize_google(audio, language='en-US')
+                    text = text.lower().strip()
                     
-                    if wake_word_only:
-                        # Check for wake words
-                        if self._contains_wake_word(text):
-                            self.logger.info(f"Wake word detected: {text}")
+                    if text:
+                        self._last_recognition_time = current_time
+                        
+                        if wake_word_only:
+                            # Check for wake words with improved matching
+                            if self._contains_wake_word(text):
+                                self.logger.info(f"Wake word detected: {text}")
+                                # Provide immediate acknowledgment
+                                callback(text)
+                        else:
+                            # Call callback for any recognized text
                             callback(text)
-                    else:
-                        # Call callback for any recognized text
-                        callback(text)
+                            
+                except sr.WaitTimeoutError:
+                    # Timeout is normal for background listening
+                    pass
                         
             except sr.UnknownValueError:
                 # No speech detected - normal, don't log
@@ -311,13 +376,17 @@ class SpeechToText:
                 self.logger.error(f"Error in background audio callback: {e}")
         
         try:
-            # Start background listening
+            # Calibrate microphone for better performance
+            with self.sr_microphone as source:
+                self.sr_recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            
+            # Start background listening with optimized settings
             self._background_listener = self.sr_recognizer.listen_in_background(
                 self.sr_microphone, 
                 audio_callback,
-                phrase_time_limit=5
+                phrase_time_limit=3  # Shorter for responsiveness
             )
-            self.logger.info("Background listening started with SpeechRecognition")
+            self.logger.info("Optimized background listening started with SpeechRecognition")
             
         except Exception as e:
             self.logger.error(f"Failed to start background listening: {e}")

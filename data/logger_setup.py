@@ -39,7 +39,10 @@ def setup_logging(
     log_path.mkdir(parents=True, exist_ok=True)
     
     # Convert log level string to logging constant
-    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    # Handle both string and dict config
+    if isinstance(log_level, dict):
+        log_level = log_level.get('level', 'INFO')
+    numeric_level = getattr(logging, str(log_level).upper(), logging.INFO)
     
     # Create root logger
     logger = logging.getLogger()

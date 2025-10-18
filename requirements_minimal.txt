@@ -1,0 +1,28 @@
+# G.H.O.S.T. Enhanced - Minimal Requirements (Essential Only)
+# Install these first, then add optional packages later
+
+# Core AI and LLM
+openai>=1.3.0
+
+# Speech Recognition and TTS
+SpeechRecognition>=3.10.0
+edge-tts>=6.1.8
+pyttsx3>=2.90
+
+# System Integration
+psutil>=5.9.0
+pywin32>=306; sys_platform=="win32"
+
+# Data Processing
+numpy>=1.24.0
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.20.0
+
+# Web and Network
+requests>=2.31.0
+
+# Optional (install separately if needed):
+# pyaudio>=0.2.11       # For microphone input
+# pygame>=2.5.0         # For audio playback
+# transformers>=4.35.0  # For local LLM models
+# torch>=2.0.0          # For local models

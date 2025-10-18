@@ -13,7 +13,13 @@ import numpy as np
 from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass
 from enum import Enum
-import pyaudio
+
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    pyaudio = None
 
 
 class WakeWordEngine(Enum):
@@ -177,7 +183,7 @@ class WakeWordListener:
     
     def start_listening(self, callback: Callable[[WakeWordDetection], None]) -> bool:
         """
-        Start continuous wake word detection.
+        Start continuous wake word detection with non-blocking approach.
         
         Args:
             callback: Function to call when wake word is detected
@@ -192,7 +198,7 @@ class WakeWordListener:
         try:
             self.wake_word_callback = callback
             
-            # Initialize audio stream
+            # Use non-blocking audio stream with optimized settings
             self.audio = pyaudio.PyAudio()
             self.audio_stream = self.audio.open(
                 format=pyaudio.paInt16,
@@ -204,17 +210,17 @@ class WakeWordListener:
                 stream_callback=self._audio_callback
             )
             
-            # Start listening thread
+            # Start non-blocking detection thread with lower CPU usage
             self.is_listening = True
             self.listen_thread = threading.Thread(
-                target=self._detection_loop,
+                target=self._optimized_detection_loop,
                 daemon=True
             )
             self.listen_thread.start()
             
             self.audio_stream.start_stream()
             
-            self.logger.info("Wake word detection started")
+            self.logger.info("Non-blocking wake word detection started")
             return True
             
         except Exception as e:
@@ -261,25 +267,34 @@ class WakeWordListener:
             self.logger.error(f"Error in audio callback: {e}")
             return (None, pyaudio.paAbort)
     
-    def _detection_loop(self) -> None:
-        """Main detection processing loop."""
-        self.logger.debug("Wake word detection loop started")
+    def _optimized_detection_loop(self) -> None:
+        """Optimized non-blocking detection loop with minimal CPU usage."""
+        self.logger.debug("Optimized wake word detection loop started")
         
         audio_buffer = b""
-        silence_start = None
+        last_detection_time = 0
+        detection_cooldown = 2.0  # Prevent rapid repeated detections
         
         while self.is_listening:
             try:
-                # Get audio data from queue
+                # Get audio data from queue with longer timeout for efficiency
                 try:
-                    audio_data = self.audio_queue.get(timeout=0.1)
+                    audio_data = self.audio_queue.get(timeout=0.2)
                 except queue.Empty:
+                    # Sleep longer when no audio to reduce CPU usage
+                    time.sleep(0.05)
                     continue
                 
                 # Add to buffer
                 audio_buffer += audio_data
                 
+                # Skip processing if in cooldown period
+                current_time = time.time()
+                if current_time - last_detection_time < detection_cooldown:
+                    continue
+                
                 # Process audio based on engine type
+                detection = None
                 if self.engine_type == "openwakeword":
                     detection = self._process_openwakeword(audio_data)
                 elif self.engine_type == "vosk_keyword":
@@ -290,21 +305,22 @@ class WakeWordListener:
                 if detection:
                     self._handle_detection(detection)
                     audio_buffer = b""  # Clear buffer after detection
+                    last_detection_time = current_time
                 
-                # Manage buffer size to prevent memory issues
-                if len(audio_buffer) > self.sample_rate * 4:  # 4 seconds max
-                    # Keep only last 2 seconds
-                    keep_samples = self.sample_rate * 2 * 2  # 2 bytes per sample
+                # Manage buffer size more aggressively to prevent memory issues
+                if len(audio_buffer) > self.sample_rate * 3:  # 3 seconds max
+                    # Keep only last 1.5 seconds
+                    keep_samples = int(self.sample_rate * 1.5 * 2)  # 2 bytes per sample
                     audio_buffer = audio_buffer[-keep_samples:]
                 
-                # Small delay to prevent excessive CPU usage
-                time.sleep(0.001)
+                # Longer sleep to reduce CPU usage when idle
+                time.sleep(0.01)
                 
             except Exception as e:
                 self.logger.error(f"Error in detection loop: {e}")
-                time.sleep(0.1)
+                time.sleep(0.2)  # Longer sleep on error
         
-        self.logger.debug("Wake word detection loop ended")
+        self.logger.debug("Optimized wake word detection loop ended")
     
     def _process_openwakeword(self, audio_data: bytes) -> Optional[WakeWordDetection]:
         """Process audio with OpenWakeWord."""

@@ -16,6 +16,14 @@ from enum import Enum
 import queue
 
 try:
+    import edge_tts
+    import asyncio
+    EDGE_TTS_AVAILABLE = True
+except ImportError:
+    EDGE_TTS_AVAILABLE = False
+    edge_tts = None
+
+try:
     from TTS.api import TTS
     COQUI_AVAILABLE = True
 except ImportError:
@@ -39,6 +47,7 @@ except ImportError:
 
 class VoiceEngine(Enum):
     """Available TTS engines."""
+    EDGE_TTS = "edge_tts"    # Microsoft Edge TTS (high-quality, free)
     COQUI = "coqui"          # High-quality neural TTS
     PYTTSX3 = "pyttsx3"      # System TTS fallback
     SYSTEM = "system"        # OS native TTS
@@ -74,10 +83,15 @@ class EnhancedTTS:
         self.config = config
         self.logger = logging.getLogger(__name__)
         
-        # Engine configuration
-        self.primary_engine = config.get('primary_engine', 'coqui')
+        # Engine configuration - prioritize Edge TTS for quality
+        self.primary_engine = config.get('primary_engine', 'edge_tts')
         self.fallback_engine = config.get('fallback_engine', 'pyttsx3')
         self.use_fallback = config.get('use_fallback', True)
+        
+        # Edge TTS configuration
+        self.edge_voice = config.get('edge_voice', 'en-US-AriaNeural')  # Professional female voice
+        self.edge_rate = config.get('edge_rate', '+0%')  # Speech rate
+        self.edge_pitch = config.get('edge_pitch', '+0Hz')  # Pitch adjustment
         
         # Voice settings
         self.default_settings = SpeechSettings(
@@ -91,6 +105,7 @@ class EnhancedTTS:
         )
         
         # Engine instances
+        self.edge_tts_available = EDGE_TTS_AVAILABLE
         self.coqui_tts = None
         self.pyttsx3_engine = None
         self.current_engine = None
@@ -114,7 +129,11 @@ class EnhancedTTS:
     def _initialize_engines(self) -> None:
         """Initialize available TTS engines."""
         try:
-            # Try to initialize Coqui TTS first
+            # Try to initialize Edge TTS first (best quality)
+            if EDGE_TTS_AVAILABLE and self.primary_engine == 'edge_tts':
+                self.logger.info("Edge TTS available - using high-quality voices")
+            
+            # Try to initialize Coqui TTS
             if COQUI_AVAILABLE and self.primary_engine == 'coqui':
                 self._initialize_coqui()
             
@@ -123,7 +142,9 @@ class EnhancedTTS:
                 self._initialize_pyttsx3()
             
             # Set current engine
-            if self.coqui_tts and self.primary_engine == 'coqui':
+            if EDGE_TTS_AVAILABLE and self.primary_engine == 'edge_tts':
+                self.current_engine = 'edge_tts'
+            elif self.coqui_tts and self.primary_engine == 'coqui':
                 self.current_engine = 'coqui'
             elif self.pyttsx3_engine:
                 self.current_engine = 'pyttsx3'
@@ -189,6 +210,8 @@ class EnhancedTTS:
             r'\bg\.h\.o\.s\.t\.?\b': 'Ghost',
             r'\bg h o s t\b': 'Ghost',
             r'\bghosT\b': 'Ghost',
+            r'\bG-H-O-S-T\b': 'Ghost',
+            r'\bG_H_O_S_T\b': 'Ghost',
             
             # Technical terms
             r'\bCPU\b': 'see pee you',
@@ -318,7 +341,9 @@ class EnhancedTTS:
         """
         try:
             # Try primary engine first
-            if self.current_engine == 'pyttsx3' and self.pyttsx3_engine:
+            if self.current_engine == 'edge_tts' and EDGE_TTS_AVAILABLE:
+                return self._speak_with_edge_tts(text, settings)
+            elif self.current_engine == 'pyttsx3' and self.pyttsx3_engine:
                 return self._speak_with_pyttsx3(text, settings, True)
             elif self.current_engine == 'coqui' and self.coqui_tts:
                 return self._speak_with_coqui(text, settings)
@@ -413,8 +438,55 @@ class EnhancedTTS:
             self.logger.error(f"Error with Coqui TTS: {e}")
             return False
     
+    def _speak_with_edge_tts(self, text: str, settings: SpeechSettings) -> bool:
+        """Synthesize speech using Microsoft Edge TTS (high-quality, free)."""
+        try:
+            # Remove SSML markup for Edge TTS processing
+            clean_text = re.sub(r'<[^>]+>', '', text)
+            
+            # Create SSML with proper pronunciation and prosody
+            ssml_text = f'''
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+                <voice name="{self.edge_voice}">
+                    <prosody rate="{self.edge_rate}" pitch="{self.edge_pitch}">
+                        {clean_text}
+                    </prosody>
+                </voice>
+            </speak>
+            '''
+            
+            # Generate speech asynchronously
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async def generate_speech():
+                communicate = edge_tts.Communicate(ssml_text, self.edge_voice)
+                await communicate.save(str(self.audio_output_path))
+            
+            loop.run_until_complete(generate_speech())
+            loop.close()
+            
+            # Play the generated audio
+            if PYGAME_AVAILABLE:
+                pygame.mixer.music.load(str(self.audio_output_path))
+                pygame.mixer.music.set_volume(settings.volume)
+                pygame.mixer.music.play()
+                
+                # Wait for playback to complete
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
+                
+                return True
+            else:
+                self.logger.warning("Pygame not available for audio playback")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error with Edge TTS: {e}")
+            return False
+    
     def _speak_with_pyttsx3(self, text: str, settings: SpeechSettings, blocking: bool) -> bool:
-        """Synthesize speech using pyttsx3."""
+        """Synthesize speech using pyttsx3 (fallback)."""
         try:
             # Apply settings
             self.pyttsx3_engine.setProperty('rate', settings.rate)
@@ -514,10 +586,12 @@ class EnhancedTTS:
         """Get current engine status."""
         return {
             'current_engine': self.current_engine,
+            'edge_tts_available': EDGE_TTS_AVAILABLE,
             'coqui_available': self.coqui_tts is not None,
             'pyttsx3_available': self.pyttsx3_engine is not None,
             'pygame_available': PYGAME_AVAILABLE,
             'fallback_enabled': self.use_fallback,
+            'edge_voice': self.edge_voice if EDGE_TTS_AVAILABLE else None,
             'default_settings': {
                 'rate': self.default_settings.rate,
                 'volume': self.default_settings.volume,

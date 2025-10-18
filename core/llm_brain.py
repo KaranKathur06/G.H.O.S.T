@@ -76,10 +76,14 @@ class LLMBrain:
         self.use_ollama = self.config.get('use_ollama', True)
         self.use_local = self.config.get('use_local', False)
         
-        # OpenAI settings
+        # OpenAI settings - upgraded to use gpt-4o-mini for better performance
         self.openai_api_key = self.config.get('openai_api_key') or os.getenv('OPENAI_API_KEY')
-        self.openai_model = self.config.get('openai_model', 'gpt-3.5-turbo')
+        self.openai_model = self.config.get('openai_model', 'gpt-4o-mini')  # Better model
         self.openai_client = None
+        
+        # Structured response settings
+        self.use_structured_responses = self.config.get('use_structured_responses', True)
+        self.immediate_ack = self.config.get('immediate_ack', True)
         
         # Ollama settings
         self.ollama_model = self.config.get('ollama_model', 'llama2')
@@ -103,7 +107,7 @@ class LLMBrain:
         self.logger.info("LLM Brain initialized")
     
     def _create_personality_prompt(self) -> str:
-        """Create G.H.O.S.T.'s personality prompt."""
+        """Create G.H.O.S.T.'s personality prompt with structured response requirements."""
         return """You are G.H.O.S.T. (Generative Hybrid Omnipresent Support Technology), an advanced AI assistant similar to J.A.R.V.I.S. from Iron Man.
 
 PERSONALITY TRAITS:
@@ -123,6 +127,34 @@ CAPABILITIES:
 - Assist with productivity tasks
 - Engage in natural conversation
 
+IMPORTANT: You must ALWAYS respond with valid JSON in this exact format:
+{
+  "reply_text": "Your spoken response to the user",
+  "action": {
+    "type": "action_name",
+    "parameters": {
+      "key": "value"
+    }
+  }
+}
+
+If no action is needed, use:
+{
+  "reply_text": "Your response",
+  "action": null
+}
+
+AVAILABLE ACTIONS:
+- "open_application": {"app_name": "application name"}
+- "open_web": {"url": "website URL"}
+- "search_web": {"query": "search terms"}
+- "open_system_item": {"path": "file/folder path"}
+- "play_media": {"content": "media name", "source": "youtube/spotify/local"}
+- "tell_joke": {"topic": "joke category"}
+- "get_time": {}
+- "get_weather": {"location": "city name"}
+- "system_command": {"command": "system command"}
+
 RESPONSE STYLE:
 - Always end responses with "Sir" when appropriate
 - Use formal language but remain conversational
@@ -132,12 +164,17 @@ RESPONSE STYLE:
 - Confirm important actions before execution
 
 EXAMPLE RESPONSES:
-- "Certainly, Sir. I'll open that application for you."
-- "I found several results for your search, Sir. Which would you prefer?"
-- "Shall I proceed with that action, Sir?"
-- "I understand your request, Sir. Let me assist you with that."
+{
+  "reply_text": "Certainly, Sir. I'll open that application for you.",
+  "action": {"type": "open_application", "parameters": {"app_name": "calculator"}}
+}
 
-Remember: You are an intelligent, capable assistant who can help with any reasonable request while maintaining professionalism and respect."""
+{
+  "reply_text": "I found several results for your search, Sir. Which would you prefer?",
+  "action": null
+}
+
+Remember: You are an intelligent, capable assistant. ALWAYS respond with valid JSON only."""
     
     def _initialize_llm_backends(self):
         """Initialize available LLM backends."""
@@ -176,17 +213,22 @@ Remember: You are an intelligent, capable assistant who can help with any reason
     
     async def reason(self, query: str, context: Dict[str, Any] = None) -> LLMResponse:
         """
-        Process query using LLM reasoning.
+        Process query using LLM reasoning with structured JSON responses.
         
         Args:
             query: User query or request
             context: Additional context information
             
         Returns:
-            LLMResponse with reasoning and suggestions
+            LLMResponse with structured reasoning and actions
         """
         try:
             start_time = datetime.now()
+            
+            # Provide immediate acknowledgment if requested
+            if self.immediate_ack and context and context.get('provide_ack', False):
+                # This would be handled by the calling system
+                pass
             
             # Prepare context
             full_context = self._prepare_context(query, context)
@@ -218,6 +260,18 @@ Remember: You are an intelligent, capable assistant who can help with any reason
         except Exception as e:
             self.logger.error(f"Error in LLM reasoning: {e}")
             return self._create_error_response(query, str(e))
+    
+    def get_immediate_ack(self) -> str:
+        """Get immediate acknowledgment message while processing."""
+        ack_messages = [
+            "Working on it, Sir.",
+            "Processing your request, Sir.",
+            "One moment, Sir.",
+            "Certainly, Sir. Let me handle that.",
+            "Right away, Sir."
+        ]
+        import random
+        return random.choice(ack_messages)
     
     def _prepare_context(self, query: str, context: Dict[str, Any] = None) -> str:
         """Prepare full context for LLM."""
@@ -253,7 +307,7 @@ Remember: You are an intelligent, capable assistant who can help with any reason
         return "\\n".join(context_parts)
     
     async def _query_openai(self, context: str) -> LLMResponse:
-        """Query OpenAI GPT models."""
+        """Query OpenAI GPT models with structured JSON response."""
         try:
             messages = [
                 {"role": "system", "content": self.personality_prompt},
@@ -264,22 +318,23 @@ Remember: You are an intelligent, capable assistant who can help with any reason
                 model=self.openai_model,
                 messages=messages,
                 max_tokens=self.max_response_tokens,
-                temperature=0.7
+                temperature=0.7,
+                response_format={"type": "json_object"}  # Force JSON response
             )
             
             content = response.choices[0].message.content
             tokens_used = response.usage.total_tokens
             
-            # Analyze response for actions
-            requires_action, suggested_actions = self._analyze_response_for_actions(content)
+            # Parse structured JSON response
+            parsed_response = self._parse_structured_response(content)
             
             return LLMResponse(
-                content=content,
+                content=parsed_response.get('reply_text', content),
                 confidence=0.9,
                 tokens_used=tokens_used,
                 model_used=self.openai_model,
-                requires_action=requires_action,
-                suggested_actions=suggested_actions
+                requires_action=parsed_response.get('action') is not None,
+                suggested_actions=[parsed_response.get('action')] if parsed_response.get('action') else []
             )
             
         except Exception as e:
@@ -349,8 +404,47 @@ Remember: You are an intelligent, capable assistant who can help with any reason
             self.logger.error(f"Local model query error: {e}")
             raise
     
+    def _parse_structured_response(self, content: str) -> Dict[str, Any]:
+        """Parse structured JSON response from LLM."""
+        try:
+            # Try to parse as JSON
+            import json
+            parsed = json.loads(content)
+            
+            # Validate required fields
+            if 'reply_text' not in parsed:
+                self.logger.warning("Missing reply_text in structured response")
+                parsed['reply_text'] = "I understand your request, Sir."
+            
+            # Ensure action is properly formatted
+            if 'action' in parsed and parsed['action'] is not None:
+                action = parsed['action']
+                if not isinstance(action, dict) or 'type' not in action:
+                    self.logger.warning("Invalid action format in structured response")
+                    parsed['action'] = None
+                else:
+                    # Ensure parameters exist
+                    if 'parameters' not in action:
+                        action['parameters'] = {}
+            
+            return parsed
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse JSON response: {e}")
+            # Fallback to text-only response
+            return {
+                'reply_text': content,
+                'action': None
+            }
+        except Exception as e:
+            self.logger.error(f"Error parsing structured response: {e}")
+            return {
+                'reply_text': "I apologize, Sir, but I encountered an issue processing your request.",
+                'action': None
+            }
+    
     def _analyze_response_for_actions(self, content: str) -> Tuple[bool, List[Dict[str, Any]]]:
-        """Analyze LLM response to determine if actions are needed."""
+        """Legacy method - kept for compatibility with non-structured responses."""
         requires_action = False
         suggested_actions = []
         
@@ -371,74 +465,99 @@ Remember: You are an intelligent, capable assistant who can help with any reason
         # Extract specific actions
         if "open" in content_lower:
             # Try to extract what to open
-            open_match = re.search(r"open\\s+([\\w\\s]+)", content_lower)
+            open_match = re.search(r"open\s+([\w\s]+)", content_lower)
             if open_match:
                 target = open_match.group(1).strip()
                 suggested_actions.append({
                     "type": "open_application",
-                    "target": target,
+                    "parameters": {"app_name": target},
                     "description": f"Open {target}"
                 })
         
         if "search" in content_lower:
             # Try to extract search query
-            search_match = re.search(r"search\\s+(?:for\\s+)?([\\w\\s]+)", content_lower)
+            search_match = re.search(r"search\s+(?:for\s+)?([\w\s]+)", content_lower)
             if search_match:
                 query = search_match.group(1).strip()
                 suggested_actions.append({
-                    "type": "web_search",
-                    "query": query,
+                    "type": "search_web",
+                    "parameters": {"query": query},
                     "description": f"Search for {query}"
                 })
         
         if "play" in content_lower:
             # Try to extract what to play
-            play_match = re.search(r"play\\s+([\\w\\s]+)", content_lower)
+            play_match = re.search(r"play\s+([\w\s]+)", content_lower)
             if play_match:
                 content_name = play_match.group(1).strip()
                 suggested_actions.append({
                     "type": "play_media",
-                    "content": content_name,
+                    "parameters": {"content": content_name, "source": "youtube"},
                     "description": f"Play {content_name}"
                 })
         
         return requires_action, suggested_actions
     
     def _create_fallback_response(self, query: str) -> LLMResponse:
-        """Create fallback response when no LLM is available."""
+        """Create structured fallback response when no LLM is available."""
         fallback_responses = {
-            "greeting": "Good day, Sir. How may I assist you today?",
-            "time": "I can help you check the current time, Sir.",
-            "weather": "I can assist with weather information, Sir.",
-            "search": "I can help you search for information, Sir.",
-            "open": "I can help you open applications or files, Sir.",
-            "default": "I understand your request, Sir. How would you like me to proceed?"
+            "greeting": {
+                "reply_text": "Good day, Sir. How may I assist you today?",
+                "action": None
+            },
+            "time": {
+                "reply_text": "Certainly, Sir. Let me get the current time for you.",
+                "action": {"type": "get_time", "parameters": {}}
+            },
+            "weather": {
+                "reply_text": "I can assist with weather information, Sir. Which location would you like?",
+                "action": None
+            },
+            "search": {
+                "reply_text": "I can help you search for information, Sir. What would you like to search for?",
+                "action": None
+            },
+            "open": {
+                "reply_text": "I can help you open applications or files, Sir. What would you like me to open?",
+                "action": None
+            },
+            "default": {
+                "reply_text": "I understand your request, Sir. How would you like me to proceed?",
+                "action": None
+            }
         }
         
         query_lower = query.lower()
         
-        for key, response in fallback_responses.items():
+        for key, response_data in fallback_responses.items():
             if key in query_lower:
                 return LLMResponse(
-                    content=response,
+                    content=response_data["reply_text"],
                     confidence=0.6,
                     model_used="fallback",
-                    reasoning_steps=["Used fallback response pattern"]
+                    reasoning_steps=["Used fallback response pattern"],
+                    requires_action=response_data["action"] is not None,
+                    suggested_actions=[response_data["action"]] if response_data["action"] else []
                 )
         
+        default_response = fallback_responses["default"]
         return LLMResponse(
-            content=fallback_responses["default"],
+            content=default_response["reply_text"],
             confidence=0.5,
-            model_used="fallback"
+            model_used="fallback",
+            requires_action=False,
+            suggested_actions=[]
         )
     
     def _create_error_response(self, query: str, error: str) -> LLMResponse:
-        """Create error response."""
+        """Create structured error response."""
         return LLMResponse(
             content="I apologize, Sir, but I encountered an issue processing your request. Please try again.",
             confidence=0.0,
             model_used="error",
-            reasoning_steps=[f"Error: {error}"]
+            reasoning_steps=[f"Error: {error}"],
+            requires_action=False,
+            suggested_actions=[]
         )
     
     def _update_conversation_context(self, user_input: str, assistant_response: str):
